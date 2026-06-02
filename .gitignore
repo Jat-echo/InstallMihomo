@@ -1,0 +1,4 @@
+*.yaml
+*.yml
+!*.sample.yaml
+!*.sample.yml
