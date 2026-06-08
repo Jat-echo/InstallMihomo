@@ -14,15 +14,50 @@
 8. 创建并启动 `clash.service`。
 9. 安装 `clash-update.timer`，每天自动重新拉取订阅并重启服务。
 
-## 快速使用
+## 一键安装（复制即用）
 
-在 Ubuntu 服务器上执行（把 URL 换成你的订阅地址）：
+把订阅地址和密码换成你自己的，整段复制到服务器执行即可（脚本会自动下载并安装）。
+
+**普通用户（带 sudo，最常见）：**
 
 ```bash
+curl -fsSL https://gh-proxy.com/https://raw.githubusercontent.com/Jat-echo/InstallMihomo/main/install-mihomo.sh \
+  | sudo bash -s -- \
+      --sub 'https://你的机场/订阅地址' \
+      --secret '换成你的面板密码'
+```
+
+**已经是 root 账号**（去掉 `sudo` 即可；有些精简系统没装 sudo）：
+
+```bash
+curl -fsSL https://gh-proxy.com/https://raw.githubusercontent.com/Jat-echo/InstallMihomo/main/install-mihomo.sh \
+  | bash -s -- \
+      --sub 'https://你的机场/订阅地址' \
+      --secret '换成你的面板密码'
+```
+
+**服务器能直连 GitHub**（去掉 gh-proxy 前缀并加 `--no-github-proxy`）：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Jat-echo/InstallMihomo/main/install-mihomo.sh \
+  | sudo bash -s -- \
+      --sub 'https://你的机场/订阅地址' \
+      --secret '换成你的面板密码' \
+      --no-github-proxy
+```
+
+> 说明：通过管道 `| bash -s --` 执行时没有交互终端，**必须用 `-s --` 把 `--sub` 传进去**，否则脚本无法弹出输入提示，会报 `no config source` 退出。`-s --` 后面可继续加任意参数，如 `--update-interval 12h`、`--no-ui`。
+
+## 快速使用（先下载再执行）
+
+如果想先把脚本存到本地再运行（便于查看内容）：
+
+```bash
+curl -fsSL https://gh-proxy.com/https://raw.githubusercontent.com/Jat-echo/InstallMihomo/main/install-mihomo.sh -o install-mihomo.sh
 sudo bash install-mihomo.sh --sub 'https://你的机场/订阅地址' --secret '换成你的面板密码'
 ```
 
-不带 `--sub` 时，脚本会提示你输入订阅链接：
+本地直接执行时，不带 `--sub` 会提示你输入订阅链接：
 
 ```bash
 sudo bash install-mihomo.sh
@@ -66,6 +101,24 @@ sudo bash install-mihomo.sh --sub 'https://你的机场/订阅地址' --update-i
 ```bash
 sudo bash install-mihomo.sh --sub 'https://你的机场/订阅地址' --no-auto-update
 ```
+
+## 重复安装会发生什么
+
+脚本是**幂等**的，对同一套 `--install-dir`/`--service-name`（默认 `/opt/clash`、`clash`）重复执行就是一次"刷新 / 升级"，不会装出第二份，也不会报错。重跑一遍会：
+
+- 重新下载并覆盖 Mihomo 核心、`geoip.metadb`、MetaCubeXD 面板（相当于升级到当前指定版本 / 最新面板）；
+- 重新从订阅拉取配置，经 `mihomo -t` 校验后覆盖 `config.yaml`；
+- 覆盖 systemd 服务与自动更新定时器文件，并**重启服务**（期间代理会短暂中断一两秒）。
+
+关于密钥：
+
+- **不带 `--secret` 重装**：自动**保留**上次设置的密钥，不会把面板变成无密码（这一点和自动更新一致）。
+- **带 `--secret` 重装**：用新密钥覆盖。
+
+两个需要注意的点：
+
+- 如果重装时换了 `--install-dir` 或 `--service-name`，会被当成**另一套独立安装**，旧的那套不会被删除。
+- 如果重装时订阅临时不可用或返回了非法配置，`mihomo -t` 校验失败会**中止替换**，`config.yaml` 保持原样、服务继续按旧配置运行（但此时核心二进制/geoip 已被覆盖为新版本）。
 
 ## 常用参数
 

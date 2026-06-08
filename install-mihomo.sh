@@ -299,6 +299,17 @@ install_config() {
     cp "${CONFIG_FILE}" "${candidate}"
   fi
 
+  # Re-install safety: if no --secret was given but a previous install already
+  # set one, keep it instead of silently leaving the dashboard unprotected.
+  if [[ -z "${SECRET}" && -f "${INSTALL_DIR}/config.yaml" ]]; then
+    local existing
+    existing="$("${YQ_BIN}" '.secret // ""' "${INSTALL_DIR}/config.yaml" 2>/dev/null || true)"
+    if [[ -n "${existing}" && "${existing}" != "null" ]]; then
+      SECRET="${existing}"
+      log "Preserving existing dashboard secret (pass --secret to change it)"
+    fi
+  fi
+
   inject_runtime_keys "${candidate}"
   validate_config "${candidate}"
   install -m 0644 "${candidate}" "${INSTALL_DIR}/config.yaml"
