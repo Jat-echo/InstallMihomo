@@ -1,8 +1,6 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-
 INSTALL_DIR="/opt/clash"
 SERVICE_NAME="clash"
 MIHOMO_VERSION="v1.19.2"
@@ -552,6 +550,9 @@ main() {
   print_summary
 }
 
-if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+# Run main unless the script is being sourced (e.g. by the test suite).
+# Using ${BASH_SOURCE[0]:-$0} also covers `curl ... | bash -s --` where
+# BASH_SOURCE is unset under `set -u`.
+if [[ "${BASH_SOURCE[0]:-$0}" == "$0" ]]; then
   main "$@"
 fi
