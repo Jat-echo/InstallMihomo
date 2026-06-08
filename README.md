@@ -90,11 +90,21 @@ systemctl list-timers clash-update.timer
 journalctl -u clash-update.service
 ```
 
-自定义更新间隔：
+安装时指定更新间隔：
 
 ```bash
 sudo bash install-mihomo.sh --sub 'https://你的机场/订阅地址' --update-interval 12h
 ```
+
+**安装后随时调整间隔（推荐）**——用脚本生成的小命令，一条搞定，不会被重装覆盖：
+
+```bash
+sudo /opt/clash/set-update-interval.sh 6h          # 每 6 小时
+sudo /opt/clash/set-update-interval.sh daily       # 每天一次
+sudo /opt/clash/set-update-interval.sh 'OnCalendar:*-*-* 04,16:00:00'   # 每天 4 点和 16 点
+```
+
+它会改写定时器、`daemon-reload` 并重启定时器，最后打印下次触发时间。直接运行会自动用 sudo 提权（当前不是 root 也行）。
 
 不安装自动更新：
 

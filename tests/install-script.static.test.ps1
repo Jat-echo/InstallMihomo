@@ -41,6 +41,8 @@ $requiredPatterns = @(
     'urlencode',
     'update.env',
     'update-config.sh',
+    'set-update-interval.sh',
+    'OnUnitActiveSec',
     '-update.timer',
     'WantedBy=timers.target',
     'systemctl daemon-reload',

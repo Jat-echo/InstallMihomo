@@ -363,11 +363,12 @@ EOF
 }
 
 install_updater() {
-  local env_file update_script service_file timer_file timer_schedule
+  local env_file update_script interval_script service_file timer_file timer_schedule
   [[ "${AUTO_UPDATE}" -eq 1 && -n "${SUBSCRIPTION_URL}" ]] || return 0
 
   env_file="${INSTALL_DIR}/update.env"
   update_script="${INSTALL_DIR}/update-config.sh"
+  interval_script="${INSTALL_DIR}/set-update-interval.sh"
   service_file="/etc/systemd/system/${SERVICE_NAME}-update.service"
   timer_file="/etc/systemd/system/${SERVICE_NAME}-update.timer"
 
@@ -425,6 +426,84 @@ log "Config updated; restarting ${SERVICE_NAME}"
 systemctl restart "${SERVICE_NAME}"
 EOF
   chmod 0755 "${update_script}"
+
+  log "Writing interval helper: ${interval_script}"
+  # Standalone command to change the timer schedule without re-running the
+  # installer. Fully static; reads SERVICE_NAME from update.env in the same dir.
+  cat > "${interval_script}" <<'EOF'
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck disable=SC1091
+source "${HERE}/update.env"
+
+TIMER="${SERVICE_NAME}-update.timer"
+TIMER_FILE="/etc/systemd/system/${TIMER}"
+
+usage() {
+  cat <<USAGE
+Usage: $0 <interval>
+
+  <interval> forms:
+    6h | 12h | 30min | 1d     run every N (systemd time span)
+    daily                     once a day (with up to 1h jitter)
+    OnCalendar:<expr>         raw OnCalendar, e.g. OnCalendar:*-*-* 04:00:00
+
+Examples:
+  $0 6h
+  $0 daily
+  $0 'OnCalendar:*-*-* 04,16:00:00'
+USAGE
+}
+
+if [[ $# -ne 1 || "$1" == "-h" || "$1" == "--help" ]]; then
+  usage
+  [[ $# -eq 1 && ( "$1" == "-h" || "$1" == "--help" ) ]] && exit 0 || exit 1
+fi
+
+if [[ "${EUID:-$(id -u)}" -ne 0 ]]; then
+  exec sudo -- "$0" "$@"
+fi
+
+arg="$1"
+case "${arg}" in
+  daily)
+    sched=$'OnCalendar=daily\nRandomizedDelaySec=1h'
+    ;;
+  OnCalendar:*)
+    expr="${arg#OnCalendar:}"
+    systemd-analyze calendar "${expr}" >/dev/null 2>&1 \
+      || { printf 'ERROR: invalid OnCalendar expression: %s\n' "${expr}" >&2; exit 1; }
+    sched="OnCalendar=${expr}"
+    ;;
+  *)
+    systemd-analyze timespan "${arg}" >/dev/null 2>&1 \
+      || { printf 'ERROR: invalid interval: %s (try 6h, 30min, daily, or OnCalendar:...)\n' "${arg}" >&2; exit 1; }
+    sched=$'OnBootSec=10min\nOnUnitActiveSec='"${arg}"
+    ;;
+esac
+
+cat > "${TIMER_FILE}" <<TEOF
+[Unit]
+Description=Scheduled Mihomo subscription update
+
+[Timer]
+${sched}
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+TEOF
+
+systemctl daemon-reload
+systemctl enable --now "${TIMER}" >/dev/null 2>&1 || true
+systemctl restart "${TIMER}"
+
+printf 'Updated %s\n\n' "${TIMER_FILE}"
+systemctl list-timers "${TIMER}" --no-pager
+EOF
+  chmod 0755 "${interval_script}"
 
   log "Writing auto-update service: ${service_file}"
   cat > "${service_file}" <<EOF
@@ -563,10 +642,11 @@ EOF
     cat <<EOF
 
 Auto-update:
-  Schedule:  ${UPDATE_INTERVAL:-daily}
-  Update now: systemctl start ${SERVICE_NAME}-update.service
-  Status:    systemctl list-timers ${SERVICE_NAME}-update.timer
-  Logs:      journalctl -u ${SERVICE_NAME}-update.service
+  Schedule:    ${UPDATE_INTERVAL:-daily}
+  Change every: ${INSTALL_DIR}/set-update-interval.sh 6h   (or: daily)
+  Update now:  systemctl start ${SERVICE_NAME}-update.service
+  Status:      systemctl list-timers ${SERVICE_NAME}-update.timer
+  Logs:        journalctl -u ${SERVICE_NAME}-update.service
 EOF
   fi
 
