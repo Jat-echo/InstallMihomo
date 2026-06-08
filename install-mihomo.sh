@@ -483,9 +483,38 @@ start_service() {
   fi
 }
 
+urlencode() {
+  # Minimal RFC-3986 encoder so the secret survives in a query string.
+  local s="$1" i c out=""
+  for (( i = 0; i < ${#s}; i++ )); do
+    c="${s:i:1}"
+    case "${c}" in
+      [a-zA-Z0-9.~_-]) out+="${c}" ;;
+      *) printf -v c '%%%02X' "'${c}"; out+="${c}" ;;
+    esac
+  done
+  printf '%s' "${out}"
+}
+
+detect_public_ip() {
+  # MetaCubeXD defaults its backend to 127.0.0.1, which is wrong from a remote
+  # browser. We can't change that frontend default, but we can print a link
+  # that prefills the public IP. Try a few providers with a short timeout.
+  local ip svc
+  for svc in "https://ifconfig.me" "https://api.ipify.org" "https://ip.sb" "https://icanhazip.com"; do
+    ip="$(curl -fsS --max-time 5 "${svc}" 2>/dev/null | tr -d '[:space:]')"
+    if [[ "${ip}" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+      printf '%s' "${ip}"
+      return 0
+    fi
+  done
+  return 1
+}
+
 print_summary() {
-  local ip
+  local ip public_ip qs
   ip="$(hostname -I 2>/dev/null | awk '{print $1}')"
+  public_ip="$(detect_public_ip || true)"
 
   cat <<EOF
 
@@ -501,12 +530,22 @@ Useful commands:
   journalctl -u ${SERVICE_NAME} -f
   curl -x http://127.0.0.1:7890 https://www.google.com
 
-Dashboard:
+Dashboard (in MetaCubeXD set the backend host to the server IP, NOT 127.0.0.1):
   Local:  http://127.0.0.1:9090/ui
 EOF
 
   if [[ -n "${ip}" ]]; then
-    printf '  Remote: http://%s:9090/ui\n' "${ip}"
+    printf '  LAN:    http://%s:9090/ui\n' "${ip}"
+  fi
+
+  if [[ -n "${public_ip}" ]]; then
+    printf '  Public: http://%s:9090/ui\n' "${public_ip}"
+    # Prefilled link: metacubexd reads hostname/port/secret from the query string.
+    qs="hostname=${public_ip}&port=9090"
+    [[ -n "${SECRET}" ]] && qs="${qs}&secret=$(urlencode "${SECRET}")"
+    printf '  One-click (prefilled backend):\n    http://%s:9090/ui/?%s\n' "${public_ip}" "${qs}"
+  else
+    printf '  (could not detect public IP; open http://<server-ip>:9090/ui and set host to that IP)\n'
   fi
 
   if [[ "${AUTO_UPDATE}" -eq 1 && -n "${SUBSCRIPTION_URL}" ]]; then
