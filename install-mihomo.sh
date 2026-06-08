@@ -480,7 +480,9 @@ case "${arg}" in
   *)
     systemd-analyze timespan "${arg}" >/dev/null 2>&1 \
       || { printf 'ERROR: invalid interval: %s (try 6h, 30min, daily, or OnCalendar:...)\n' "${arg}" >&2; exit 1; }
-    sched=$'OnBootSec=10min\nOnUnitActiveSec='"${arg}"
+    # OnActiveSec anchors the next run to this timer (re)start; OnUnitActiveSec
+    # repeats per run. Without OnActiveSec a restarted timer shows NEXT=n/a.
+    sched=$'OnBootSec=10min\nOnActiveSec='"${arg}"$'\nOnUnitActiveSec='"${arg}"
     ;;
 esac
 
@@ -518,7 +520,10 @@ ExecStart=${update_script}
 EOF
 
   if [[ -n "${UPDATE_INTERVAL}" ]]; then
-    timer_schedule=$(printf 'OnBootSec=10min\nOnUnitActiveSec=%s' "${UPDATE_INTERVAL}")
+    # OnActiveSec gives a concrete next-elapse right after the timer (re)starts;
+    # OnUnitActiveSec then repeats relative to each run. Without OnActiveSec a
+    # restarted monotonic timer can end up with NEXT=n/a (never fires).
+    timer_schedule=$(printf 'OnBootSec=10min\nOnActiveSec=%s\nOnUnitActiveSec=%s' "${UPDATE_INTERVAL}" "${UPDATE_INTERVAL}")
   else
     timer_schedule=$(printf 'OnCalendar=daily\nRandomizedDelaySec=1h')
   fi
